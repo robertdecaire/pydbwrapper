@@ -231,21 +231,28 @@ class Page(dict):
 
 class Database(object):
     """Facade to access database using psycopg2"""
-
+    dry_run: bool
     def __init__(self, config=None):
         self.config = Config.instance() if config is None else config
         self.connection = self.config.pool.connection()
         self.print_sql = self.config.print_sql
+        self.dry_run = False
 
     def __enter__(self):
         return self
 
     def __exit__(self, type, value, tb):
-        if type is None and value is None and tb is None:
+        if type is None and value is None and tb is None and not self.dry_run:
             self.connection.commit()
         else:
             self.connection.rollback()
         self.disconnect()
+        if type is None and value is None and tb is None and self.dry_run:
+            self.dry_run = False
+            return True
+        else:
+            self.dry_run = False
+            return False
 
     def __load_query(self, name):
         """Load a query located in ./sql/<name>.sql"""
@@ -272,6 +279,11 @@ class Database(object):
 
         cursor.execute(sql, parameters)
         return CursorWrapper(cursor)
+
+    def dryrun(self, name_or_sql, parameters=None, skip_load_query=False):
+        """Run query and then roll back"""
+        self.dry_run = True
+        return self.execute(name_or_sql, parameters, skip_load_query)
 
     def paging(self, name_or_sql, parameters=None, page=0, page_size=10, skip_load_query=True):
         if skip_load_query:
